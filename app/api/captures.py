@@ -1,28 +1,28 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-from typing import List
+﻿from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.api.dto import (
     CreateCaptureRequest, CreateCaptureResponse,
     UploadResponse, StatusResponse, TimelineResponse,
     ProcessResponse, DeleteResponse
 )
 from app.config.di_config import (
-    get_capture_repository, get_image_repository,
-    get_timeline_repository, get_transcription_repository,
-    get_processing_job_repository, get_file_service, get_processing_service
+    capture_repository,
+    image_repository,
+    timeline_repository,
+    transcription_repository,
+    processing_job_repository,
+    file_service,
+    processing_service
 )
-from app.config.settings import settings
+from app.config import settings
 
 router = APIRouter()
 
 
 @router.post("/", response_model=CreateCaptureResponse)
-async def create_capture(
-    request: CreateCaptureRequest,
-    capture_repo = Depends(get_capture_repository)
-):
-    """Create a new capture"""
+async def create_capture(request: CreateCaptureRequest):
+    """Create a new capture."""
     try:
-        capture = await capture_repo.create(
+        capture = await capture_repository.create(
             title=request.title,
             description=request.description
         )
@@ -32,34 +32,25 @@ async def create_capture(
 
 
 @router.post("/{capture_id}/audio", response_model=UploadResponse)
-async def upload_audio(
-    capture_id: str,
-    file: UploadFile = File(...),
-    capture_repo = Depends(get_capture_repository),
-    file_service = Depends(get_file_service)
-):
-    """Upload audio file for a capture"""
-    # Validate file type
-    if file.content_type not in settings.allowed_audio_types:
+async def upload_audio(capture_id: str, file: UploadFile = File(...)):
+    """Upload audio file for a capture."""
+    if file.content_type not in settings.ALLOWED_AUDIO_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type. Allowed types: {', '.join(settings.allowed_audio_types)}"
+            detail=f"Invalid file type. Allowed types: {', '.join(settings.ALLOWED_AUDIO_TYPES)}"
         )
 
-    # Validate file size (if content length is available)
-    if hasattr(file, 'size') and file.size > settings.max_upload_size:
+    if hasattr(file, 'size') and file.size > settings.MAX_UPLOAD_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Maximum size: {settings.max_upload_size} bytes"
+            detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE} bytes"
         )
 
     try:
-        # Check if capture exists
-        capture = await capture_repo.get(capture_id)
+        capture = await capture_repository.get(capture_id)
         if not capture:
             raise HTTPException(status_code=404, detail="Capture not found")
 
-        # Save file
         file_data = await file.read()
         file_path = await file_service.save_file(
             file_data=file_data,
@@ -67,8 +58,7 @@ async def upload_audio(
             file_type="audio"
         )
 
-        # Update capture status
-        await capture_repo.update_status(capture_id, "audio_uploaded")
+        await capture_repository.update_status(capture_id, "audio_uploaded")
 
         return UploadResponse(
             capture_id=capture_id,
@@ -83,35 +73,25 @@ async def upload_audio(
 
 
 @router.post("/{capture_id}/images", response_model=UploadResponse)
-async def upload_image(
-    capture_id: str,
-    file: UploadFile = File(...),
-    capture_repo = Depends(get_capture_repository),
-    image_repo = Depends(get_image_repository),
-    file_service = Depends(get_file_service)
-):
-    """Upload image file for a capture"""
-    # Validate file type
-    if file.content_type not in settings.allowed_image_types:
+async def upload_image(capture_id: str, file: UploadFile = File(...)):
+    """Upload image file for a capture."""
+    if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type. Allowed types: {', '.join(settings.allowed_image_types)}"
+            detail=f"Invalid file type. Allowed types: {', '.join(settings.ALLOWED_IMAGE_TYPES)}"
         )
 
-    # Validate file size (if content length is available)
-    if hasattr(file, 'size') and file.size > settings.max_upload_size:
+    if hasattr(file, 'size') and file.size > settings.MAX_UPLOAD_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Maximum size: {settings.max_upload_size} bytes"
+            detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE} bytes"
         )
 
     try:
-        # Check if capture exists
-        capture = await capture_repo.get(capture_id)
+        capture = await capture_repository.get(capture_id)
         if not capture:
             raise HTTPException(status_code=404, detail="Capture not found")
 
-        # Save file
         file_data = await file.read()
         file_path = await file_service.save_file(
             file_data=file_data,
@@ -119,8 +99,7 @@ async def upload_image(
             file_type="image"
         )
 
-        # Create image record
-        image = await image_repo.create(
+        image = await image_repository.create(
             capture_id=capture_id,
             file_path=file_path,
             description=f"Uploaded image: {file.filename}"
@@ -140,20 +119,14 @@ async def upload_image(
 
 
 @router.get("/{capture_id}/status", response_model=StatusResponse)
-async def get_status(
-    capture_id: str,
-    capture_repo = Depends(get_capture_repository),
-    processing_repo = Depends(get_processing_job_repository)
-):
-    """Get capture processing status"""
+async def get_status(capture_id: str):
+    """Get capture processing status."""
     try:
-        capture = await capture_repo.get(capture_id)
+        capture = await capture_repository.get(capture_id)
         if not capture:
             raise HTTPException(status_code=404, detail="Capture not found")
 
-        # Get processing jobs
-        jobs = await processing_repo.get_by_capture(capture_id)
-
+        jobs = await processing_job_repository.get_by_capture(capture_id)
         return StatusResponse.from_capture_and_jobs(capture, jobs)
     except HTTPException:
         raise
@@ -162,19 +135,14 @@ async def get_status(
 
 
 @router.get("/{capture_id}/timeline", response_model=TimelineResponse)
-async def get_timeline(
-    capture_id: str,
-    capture_repo = Depends(get_capture_repository),
-    timeline_repo = Depends(get_timeline_repository)
-):
-    """Get capture timeline"""
+async def get_timeline(capture_id: str):
+    """Get capture timeline."""
     try:
-        capture = await capture_repo.get(capture_id)
+        capture = await capture_repository.get(capture_id)
         if not capture:
             raise HTTPException(status_code=404, detail="Capture not found")
 
-        events = await timeline_repo.get_by_capture(capture_id)
-
+        events = await timeline_repository.get_by_capture(capture_id)
         return TimelineResponse.from_events(capture_id, events)
     except HTTPException:
         raise
@@ -183,43 +151,33 @@ async def get_timeline(
 
 
 @router.post("/{capture_id}/process", response_model=ProcessResponse)
-async def process_capture(
-    capture_id: str,
-    capture_repo = Depends(get_capture_repository),
-    processing_repo = Depends(get_processing_job_repository),
-    processing_service = Depends(get_processing_service)
-):
-    """Start processing for a capture"""
+async def process_capture(capture_id: str):
+    """Start processing for a capture."""
     try:
-        capture = await capture_repo.get(capture_id)
+        capture = await capture_repository.get(capture_id)
         if not capture:
             raise HTTPException(status_code=404, detail="Capture not found")
 
-        # Update status to processing
-        await capture_repo.update_status(capture_id, "processing")
+        await capture_repository.update_status(capture_id, "processing")
 
-        # Create processing jobs
-        transcription_job = await processing_repo.create(
+        transcription_job = await processing_job_repository.create(
             capture_id=capture_id,
             job_type="transcription"
         )
-
-        image_job = await processing_repo.create(
+        image_job = await processing_job_repository.create(
             capture_id=capture_id,
             job_type="image_processing"
         )
 
-        # Queue background tasks
         transcription_task_id = await processing_service.queue_transcription(capture_id)
         image_task_id = await processing_service.queue_image_processing(capture_id)
 
-        # Update jobs with task IDs
-        await processing_repo.update_result(
+        await processing_job_repository.update_result(
             transcription_job.id,
             "queued",
             {"task_id": transcription_task_id}
         )
-        await processing_repo.update_result(
+        await processing_job_repository.update_result(
             image_job.id,
             "queued",
             {"task_id": image_task_id}
@@ -240,36 +198,23 @@ async def process_capture(
 
 
 @router.delete("/{capture_id}", response_model=DeleteResponse)
-async def delete_capture(
-    capture_id: str,
-    capture_repo = Depends(get_capture_repository),
-    image_repo = Depends(get_image_repository),
-    timeline_repo = Depends(get_timeline_repository),
-    transcription_repo = Depends(get_transcription_repository),
-    processing_repo = Depends(get_processing_job_repository),
-    file_service = Depends(get_file_service)
-):
-    """Delete a capture and all associated data"""
+async def delete_capture(capture_id: str):
+    """Delete a capture and all associated data."""
     try:
-        capture = await capture_repo.get(capture_id)
+        capture = await capture_repository.get(capture_id)
         if not capture:
             raise HTTPException(status_code=404, detail="Capture not found")
 
-        # Get all images for cleanup
-        images = await image_repo.get_by_capture(capture_id)
+        images = await image_repository.get_by_capture(capture_id)
 
-        # Delete associated data
-        await timeline_repo.delete_by_capture(capture_id)
-        await transcription_repo.delete_by_capture(capture_id)
-        await processing_repo.delete_by_capture(capture_id)
+        await timeline_repository.delete_by_capture(capture_id)
+        await transcription_repository.delete_by_capture(capture_id)
+        await processing_job_repository.delete_by_capture(capture_id)
 
-        # Delete image files
         for image in images:
             await file_service.delete_file(image.file_path)
-        await image_repo.delete_by_capture(capture_id)
 
-        # Delete capture
-        await capture_repo.delete(capture_id)
+        await capture_repository.delete(capture_id)
 
         return DeleteResponse(
             capture_id=capture_id,

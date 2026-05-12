@@ -1,19 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends
+﻿from fastapi import APIRouter, HTTPException
 from app.api.dto import (
     SearchRequest, SearchResponse, CaptureSearchRequest, CaptureSearchResponse,
     SearchResultDTO
 )
-from app.config.di_config import get_search_service, get_capture_repository
+from app.config.di_config import search_service, capture_repository
 
 router = APIRouter()
 
 
 @router.post("/global", response_model=SearchResponse)
-async def global_search(
-    request: SearchRequest,
-    search_service = Depends(get_search_service)
-):
-    """Search across all captures"""
+async def global_search(request: SearchRequest):
+    """Search across all captures."""
     try:
         results, total = await search_service.search(
             query=request.query,
@@ -43,16 +40,10 @@ async def global_search(
 
 
 @router.post("/captures/{capture_id}", response_model=CaptureSearchResponse)
-async def capture_search(
-    capture_id: str,
-    request: CaptureSearchRequest,
-    search_service = Depends(get_search_service),
-    capture_repo = Depends(get_capture_repository)
-):
-    """Search within a specific capture"""
+async def capture_search(capture_id: str, request: CaptureSearchRequest):
+    """Search within a specific capture."""
     try:
-        # Check if capture exists
-        capture = await capture_repo.get(capture_id)
+        capture = await capture_repository.get(capture_id)
         if not capture:
             raise HTTPException(status_code=404, detail="Capture not found")
 
